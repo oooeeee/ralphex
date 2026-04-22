@@ -69,9 +69,10 @@ ENV USE_BUILTIN_RIPGREP=0
 ENV RALPHEX_DOCKER=1
 
 # install claude code and codex globally, verify CLI commands exist
-RUN npm install -g @anthropic-ai/claude-code @openai/codex && \
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot && \
     command -v claude >/dev/null || { echo "error: claude CLI not found"; exit 1; } && \
-    command -v codex >/dev/null || { echo "error: codex CLI not found"; exit 1; }
+    command -v codex >/dev/null || { echo "error: codex CLI not found"; exit 1; } && \
+    command -v copilot >/dev/null || { echo "error: copilot CLI not found"; exit 1; }
 
 # copy ralphex binary
 COPY --from=build /build/ralphex /srv/ralphex
