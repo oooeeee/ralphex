@@ -79,7 +79,8 @@ RUN chmod +x /srv/ralphex
 
 # copy init script (baseimage runs /srv/init.sh before main command)
 COPY scripts/internal/init-docker.sh /srv/init.sh
-RUN chmod +x /srv/init.sh
+COPY scripts/codex-as-claude/codex-as-claude.sh /srv/codex-as-claude.sh
+RUN chmod +x /srv/init.sh /srv/codex-as-claude.sh
 
 # expose web dashboard port
 EXPOSE 8080
