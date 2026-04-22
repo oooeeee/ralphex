@@ -1,0 +1,91 @@
+# Stage 1: Build ralphex binary
+FROM ghcr.io/umputun/baseimage/buildgo:latest AS build
+
+ARG GIT_BRANCH
+ARG GITHUB_SHA
+ARG CI
+
+WORKDIR /build
+ADD . /build
+
+RUN \
+    if [ -z "$CI" ] ; then \
+        echo "runs outside of CI"; \
+        version=$(git describe --tags --always 2>/dev/null || echo "docker-$(date +%Y%m%dT%H%M%S)"); \
+    else version=${GIT_BRANCH}-${GITHUB_SHA:0:7}-$(date +%Y%m%dT%H%M%S); fi && \
+    echo "version=$version" && \
+    go build -o /build/ralphex -ldflags "-X main.revision=${version} -s -w" ./cmd/ralphex
+
+
+FROM ghcr.io/umputun/baseimage/app:latest AS app-base
+
+# Stage 2: Base runtime image
+FROM rakes:latest
+
+LABEL org.opencontainers.image.source="rakes"
+LABEL org.opencontainers.image.description="Autonomous plan execution with Claude Code with rakes"
+# from app-base
+COPY --from=app-base /usr/bin/nop.sh /usr/bin/nop.sh
+COPY --from=app-base /usr/bin/app.sh /usr/bin/app.sh
+COPY --from=app-base /usr/bin/pong.sh /usr/bin/pong.sh
+COPY --from=app-base /init.sh /init.sh
+COPY --from=app-base /init-root.sh /init-root.sh
+
+ENV \
+    TERM=xterm-color           \
+    TIME_ZONE=America/Chicago  \
+    APP_USER=app               \
+    APP_UID=1001               \
+    DOCKER_GID=999
+
+RUN \
+    chmod +x /usr/bin/nop.sh /usr/bin/app.sh /init.sh /init-root.sh && \
+    adduser --shell /bin/sh --disabled-password -u $APP_UID $APP_USER && \
+    chmod a+rx /home/app && \
+    delgroup systemd-journal && addgroup --system systemd-journal && \
+    addgroup --gid ${DOCKER_GID} docker && usermod --append --group docker ${APP_USER} && \
+    mkdir -p /srv && chown -R $APP_USER:$APP_USER /srv && \
+    cp /usr/share/zoneinfo/${TIME_ZONE} /etc/localtime && \
+    echo "${TIME_ZONE}" > /etc/timezone && date
+
+# install base tools (node.js, npm, python, essentials)
+# for language-specific images, see Dockerfile-go or extend this image
+RUN apt-get update && apt-get -y install \
+    gosu dumb-init \
+    nodejs npm  \
+    ripgrep \
+    fzf git jq bash \
+    make gcc musl-dev docker-cli && \
+    rm -rf /var/lib/apt/lists/* &&  rm -rf /var/cache/apk/* && \
+    apt-get clean && \
+    ln -s /usr/bin/dumb-init /sbin/dinit && \
+    ln -s /usr/sbin/gosu /sbin/su-exec && \
+    sed -i 's|/home/app:/bin/sh|/home/app:/bin/bash|' /etc/passwd
+
+# set env for claude code on alpine (use system ripgrep)
+ENV USE_BUILTIN_RIPGREP=0
+
+# mark container environment for ralphex (used to auto-disable codex sandbox)
+ENV RALPHEX_DOCKER=1
+
+# install claude code and codex globally, verify CLI commands exist
+RUN npm install -g @anthropic-ai/claude-code @openai/codex && \
+    command -v claude >/dev/null || { echo "error: claude CLI not found"; exit 1; } && \
+    command -v codex >/dev/null || { echo "error: codex CLI not found"; exit 1; }
+
+# copy ralphex binary
+COPY --from=build /build/ralphex /srv/ralphex
+RUN chmod +x /srv/ralphex
+
+# copy init script (baseimage runs /srv/init.sh before main command)
+COPY scripts/internal/init-docker.sh /srv/init.sh
+RUN chmod +x /srv/init.sh
+
+# expose web dashboard port
+EXPOSE 8080
+
+WORKDIR /workspace
+
+# baseimage runs CMD via init.sh entrypoint (handles APP_UID mapping)
+ENTRYPOINT ["bash", "/init.sh"]
+CMD ["/srv/ralphex"]
