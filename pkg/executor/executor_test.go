@@ -408,6 +408,25 @@ func TestClaudeExecutor_Run_WithCustomArgs(t *testing.T) {
 	assert.Equal(t, []string{"--custom-arg", "--another-arg", "value", "--print"}, capturedArgs)
 }
 
+func TestClaudeExecutor_Run_WithExplicitEmptyArgs(t *testing.T) {
+	var capturedArgs []string
+	mock := &mocks.CommandRunnerMock{
+		RunFunc: func(_ context.Context, _ string, args ...string) (io.Reader, func() error, error) {
+			capturedArgs = args
+			return strings.NewReader(`{"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}`), func() error { return nil }, nil
+		},
+	}
+	e := &ClaudeExecutor{
+		cmdRunner: mock,
+		ArgsSet:   true,
+	}
+
+	result := e.Run(context.Background(), "test prompt")
+
+	require.NoError(t, result.Error)
+	assert.Equal(t, []string{"--print"}, capturedArgs)
+}
+
 func TestClaudeExecutor_Run_WithCustomCommandAndArgs(t *testing.T) {
 	var capturedCmd string
 	var capturedArgs []string
@@ -532,6 +551,53 @@ func TestFilterEnv(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			got := filterEnv(tc.env, tc.remove...)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestClaudeChildEnv(t *testing.T) {
+	tests := []struct {
+		name           string
+		env            []string
+		preserveAPIKey bool
+		want           []string
+	}{
+		{
+			name:           "default strips both ANTHROPIC_API_KEY and CLAUDECODE",
+			env:            []string{"PATH=/usr/bin", "CLAUDECODE=1", "ANTHROPIC_API_KEY=secret", "HOME=/home/user"},
+			preserveAPIKey: false,
+			want:           []string{"PATH=/usr/bin", "HOME=/home/user"},
+		},
+		{
+			name:           "preserve keeps ANTHROPIC_API_KEY but still strips CLAUDECODE",
+			env:            []string{"PATH=/usr/bin", "CLAUDECODE=1", "ANTHROPIC_API_KEY=secret", "HOME=/home/user"},
+			preserveAPIKey: true,
+			want:           []string{"PATH=/usr/bin", "ANTHROPIC_API_KEY=secret", "HOME=/home/user"},
+		},
+		{
+			name:           "preserve with no api key in env keeps everything except CLAUDECODE",
+			env:            []string{"PATH=/usr/bin", "CLAUDECODE=1", "HOME=/home/user"},
+			preserveAPIKey: true,
+			want:           []string{"PATH=/usr/bin", "HOME=/home/user"},
+		},
+		{
+			name:           "default with no api key in env still strips CLAUDECODE",
+			env:            []string{"PATH=/usr/bin", "CLAUDECODE=1", "HOME=/home/user"},
+			preserveAPIKey: false,
+			want:           []string{"PATH=/usr/bin", "HOME=/home/user"},
+		},
+		{
+			name:           "preserve does not affect partial-match keys like ANTHROPIC_API_KEY_OLD",
+			env:            []string{"ANTHROPIC_API_KEY_OLD=old", "ANTHROPIC_API_KEY=new", "CLAUDECODE=1"},
+			preserveAPIKey: true,
+			want:           []string{"ANTHROPIC_API_KEY_OLD=old", "ANTHROPIC_API_KEY=new"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := claudeChildEnv(tc.env, tc.preserveAPIKey)
 			assert.Equal(t, tc.want, got)
 		})
 	}

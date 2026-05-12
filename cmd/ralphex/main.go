@@ -31,33 +31,39 @@ import (
 
 // opts holds all command-line options.
 type opts struct {
-	MaxIterations         int           `short:"m" long:"max-iterations" description:"maximum task iterations (default: 50)"`
-	MaxExternalIterations int           `long:"max-external-iterations" default:"0" description:"override external review iteration limit (0 = auto)"`
-	ReviewPatience        int           `long:"review-patience" default:"0" description:"terminate external review after N unchanged rounds (0 = disabled)"`
-	TaskModel             string        `long:"task-model" description:"model for task execution as model[:effort] (e.g., opus, opus:high, :medium)"`
-	ReviewModel           string        `long:"review-model" description:"model for review phases as model[:effort] (falls back to --task-model)"`
-	Review                bool          `short:"r" long:"review" description:"skip task execution, run full review pipeline"`
-	ExternalOnly          bool          `short:"e" long:"external-only" description:"skip tasks and first review, run only external review loop"`
-	CodexOnly             bool          `short:"c" long:"codex-only" description:"alias for --external-only (deprecated)"`
-	TasksOnly             bool          `short:"t" long:"tasks-only" description:"run only task phase, skip all reviews"`
-	BaseRef               string        `short:"b" long:"base-ref" description:"override default branch for review diffs (branch name or commit hash)"`
-	Wait                  time.Duration `long:"wait" description:"wait duration on rate limit before retry (e.g. 1h, 30m)"`
-	SessionTimeout        time.Duration `long:"session-timeout" description:"per-session timeout for claude (e.g. 30m, 1h)"`
-	IdleTimeout           time.Duration `long:"idle-timeout" description:"kill claude session after no output for this duration (e.g. 5m, 10m)"`
-	SkipFinalize          bool          `long:"skip-finalize" description:"skip finalize step even if enabled in config"`
-	Worktree              bool          `long:"worktree" description:"run in isolated git worktree"`
-	PlanDescription       string        `long:"plan" description:"create plan interactively (enter plan description)"`
-	Debug                 bool          `short:"d" long:"debug" description:"enable debug logging"`
-	NoColor               bool          `long:"no-color" description:"disable color output"`
-	Version               bool          `short:"v" long:"version" description:"print version and exit"`
-	Serve                 bool          `short:"s" long:"serve" description:"start web dashboard for real-time streaming"`
-	Port                  int           `short:"p" long:"port" default:"8080" description:"web dashboard port"`
-	Host                  string        `long:"host" default:"127.0.0.1" env:"RALPHEX_WEB_HOST" description:"web dashboard listen address"`
-	Watch                 []string      `short:"w" long:"watch" description:"directories to watch for progress files (repeatable)"`
-	Init                  bool          `long:"init" description:"initialize local .ralphex/ config directory in current project"`
-	Reset                 bool          `long:"reset" description:"interactively reset global config to embedded defaults"`
-	DumpDefaults          string        `long:"dump-defaults" description:"extract raw embedded defaults to specified directory"`
-	ConfigDir             string        `long:"config-dir" env:"RALPHEX_CONFIG_DIR" description:"custom config directory"`
+	MaxIterations           int           `short:"m" long:"max-iterations" description:"maximum task iterations (default: 50)"`
+	MaxExternalIterations   int           `long:"max-external-iterations" default:"0" description:"override external review iteration limit (0 = auto)"`
+	ReviewPatience          int           `long:"review-patience" default:"0" description:"terminate external review after N unchanged rounds (0 = disabled)"`
+	TaskModel               string        `long:"task-model" description:"model for task execution as model[:effort] (e.g., opus, opus:high, :medium)"`
+	ReviewModel             string        `long:"review-model" description:"model for review phases as model[:effort] (falls back to --task-model)"`
+	ClaudeCommand           string        `long:"claude-command" description:"override claude-compatible command for this run"`
+	ClaudeArgs              string        `long:"claude-args" description:"override claude-compatible command args for this run"`
+	ExternalReviewTool      string        `long:"external-review-tool" choice:"codex" choice:"custom" choice:"none" description:"override external review tool for this run"`
+	CustomReviewScript      string        `long:"custom-review-script" description:"override custom external review script for this run"`
+	Review                  bool          `short:"r" long:"review" description:"skip task execution, run full review pipeline"`
+	ExternalOnly            bool          `short:"e" long:"external-only" description:"skip tasks and first review, run only external review loop"`
+	CodexOnly               bool          `short:"c" long:"codex-only" description:"alias for --external-only (deprecated)"`
+	TasksOnly               bool          `short:"t" long:"tasks-only" description:"run only task phase, skip all reviews"`
+	BaseRef                 string        `short:"b" long:"base-ref" description:"override default branch for review diffs (branch name or commit hash)"`
+	Wait                    time.Duration `long:"wait" description:"wait duration on rate limit before retry (e.g. 1h, 30m)"`
+	SessionTimeout          time.Duration `long:"session-timeout" description:"per-session timeout for claude (e.g. 30m, 1h)"`
+	IdleTimeout             time.Duration `long:"idle-timeout" description:"kill claude session after no output for this duration (e.g. 5m, 10m)"`
+	SkipFinalize            bool          `long:"skip-finalize" description:"skip finalize step even if enabled in config"`
+	PreserveAnthropicAPIKey bool          `long:"preserve-anthropic-api-key" description:"pass ANTHROPIC_API_KEY through to claude (for users authenticating Claude Code via API key rather than OAuth/keychain)"`
+	Worktree                bool          `long:"worktree" description:"run in isolated git worktree"`
+	Branch                  string        `long:"branch" description:"override branch name for worktree/branch creation (default: derived from plan filename)"`
+	PlanDescription         string        `long:"plan" description:"create plan interactively (enter plan description)"`
+	Debug                   bool          `short:"d" long:"debug" description:"enable debug logging"`
+	NoColor                 bool          `long:"no-color" description:"disable color output"`
+	Version                 bool          `short:"v" long:"version" description:"print version and exit"`
+	Serve                   bool          `short:"s" long:"serve" description:"start web dashboard for real-time streaming"`
+	Port                    int           `short:"p" long:"port" default:"8080" description:"web dashboard port"`
+	Host                    string        `long:"host" default:"127.0.0.1" env:"RALPHEX_WEB_HOST" description:"web dashboard listen address"`
+	Watch                   []string      `short:"w" long:"watch" description:"directories to watch for progress files (repeatable)"`
+	Init                    bool          `long:"init" description:"initialize local .ralphex/ config directory in current project"`
+	Reset                   bool          `long:"reset" description:"interactively reset global config to embedded defaults"`
+	DumpDefaults            string        `long:"dump-defaults" description:"extract raw embedded defaults to specified directory"`
+	ConfigDir               string        `long:"config-dir" env:"RALPHEX_CONFIG_DIR" description:"custom config directory"`
 
 	PlanFile string `positional-arg-name:"plan-file" description:"path to plan file (optional, uses fzf if omitted)"`
 
@@ -65,6 +71,11 @@ type opts struct {
 	waitSet           bool
 	sessionTimeoutSet bool
 	idleTimeoutSet    bool
+
+	claudeCommandSet      bool
+	claudeArgsSet         bool
+	externalReviewToolSet bool
+	customReviewScriptSet bool
 }
 
 // markFlagsSet detects which duration flags were explicitly provided on the CLI
@@ -76,6 +87,10 @@ func (o *opts) markFlagsSet(parser *flags.Parser) {
 	o.waitSet = isFlagSet(parser, "wait")
 	o.sessionTimeoutSet = isFlagSet(parser, "session-timeout")
 	o.idleTimeoutSet = isFlagSet(parser, "idle-timeout")
+	o.claudeCommandSet = isFlagSet(parser, "claude-command")
+	o.claudeArgsSet = isFlagSet(parser, "claude-args")
+	o.externalReviewToolSet = isFlagSet(parser, "external-review-tool")
+	o.customReviewScriptSet = isFlagSet(parser, "custom-review-script")
 }
 
 var revision = "unknown"
@@ -113,29 +128,31 @@ func (stderrLog) Print(format string, args ...any) {
 
 // startupInfo holds parameters for printing startup information.
 type startupInfo struct {
-	PlanFile        string
-	PlanDescription string // used for plan mode instead of PlanFile
-	Branch          string
-	Mode            processor.Mode
-	MaxIterations   int
-	ProgressPath    string
+	PlanFile                string
+	PlanDescription         string // used for plan mode instead of PlanFile
+	Branch                  string
+	Mode                    processor.Mode
+	MaxIterations           int
+	ProgressPath            string
+	PreserveAnthropicAPIKey bool // when true, surfaced in the banner so users can spot wrong-context runs before claude bills the wrong account
 }
 
 // executePlanRequest holds parameters for plan execution.
 type executePlanRequest struct {
-	PlanFile      string
-	MainPlanFile  string // original plan path in main repo (worktree mode); empty in normal mode
-	Mode          processor.Mode
-	GitSvc        *git.Service
-	MainGitSvc    *git.Service // main repo service for cross-boundary ops (worktree mode); nil in normal mode
-	Config        *config.Config
-	Colors        *progress.Colors
-	DefaultBranch string // actual default branch for branch/worktree creation (config or auto-detect)
-	BaseRef       string // base reference for review diffs and templates (--base-ref override or DefaultBranch)
-	NotifySvc     *notify.Service
-	WtCleanup     *worktreeCleanupFn  // worktree cleanup for interrupt handler; nil when not in worktree mode
-	ProgressLog   *progress.Logger    // pre-created logger (worktree mode); nil in normal mode
-	PhaseHolder   *status.PhaseHolder // pre-created holder (worktree mode); nil in normal mode
+	PlanFile       string
+	MainPlanFile   string // original plan path in main repo (worktree mode); empty in normal mode
+	Mode           processor.Mode
+	GitSvc         *git.Service
+	MainGitSvc     *git.Service // main repo service for cross-boundary ops (worktree mode); nil in normal mode
+	Config         *config.Config
+	Colors         *progress.Colors
+	DefaultBranch  string // actual default branch for branch/worktree creation (config or auto-detect)
+	BaseRef        string // base reference for review diffs and templates (--base-ref override or DefaultBranch)
+	NotifySvc      *notify.Service
+	BranchOverride string              // branch name override (--branch flag); empty = derive from plan filename
+	WtCleanup      *worktreeCleanupFn  // worktree cleanup for interrupt handler; nil when not in worktree mode
+	ProgressLog    *progress.Logger    // pre-created logger (worktree mode); nil in normal mode
+	PhaseHolder    *status.PhaseHolder // pre-created holder (worktree mode); nil in normal mode
 }
 
 // worktreeCleanupFn holds a worktree cleanup function with mutex for safe cross-goroutine access.
@@ -232,6 +249,7 @@ func run(ctx context.Context, o opts) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	applyCLIOverrides(o, cfg)
 
 	// create colors from config (all colors guaranteed populated via fallback)
 	colors := progress.NewColors(cfg.Colors)
@@ -279,7 +297,6 @@ func run(ctx context.Context, o opts) error {
 	defaultBranch := resolveDefaultBranch("", cfg.DefaultBranch, autoDetected)
 	// baseRef is for review diffs and {{DEFAULT_BRANCH}} template variable (--base-ref override)
 	baseRef := resolveDefaultBranch(o.BaseRef, cfg.DefaultBranch, autoDetected)
-	applyCLIOverrides(o, cfg)
 
 	mode := determineMode(o)
 
@@ -289,26 +306,28 @@ func run(ctx context.Context, o opts) error {
 	// plan mode has different flow - doesn't require plan file selection
 	if mode == processor.ModePlan {
 		return runPlanMode(ctx, o, executePlanRequest{
-			Mode:          processor.ModePlan,
-			GitSvc:        gitSvc,
-			Config:        cfg,
-			Colors:        colors,
-			DefaultBranch: defaultBranch,
-			BaseRef:       baseRef,
-			NotifySvc:     notifySvc,
-			WtCleanup:     wtCleanup,
+			Mode:           processor.ModePlan,
+			GitSvc:         gitSvc,
+			Config:         cfg,
+			Colors:         colors,
+			DefaultBranch:  defaultBranch,
+			BaseRef:        baseRef,
+			NotifySvc:      notifySvc,
+			WtCleanup:      wtCleanup,
+			BranchOverride: o.Branch,
 		}, selector)
 	}
 
 	return selectAndExecutePlan(ctx, o, executePlanRequest{
-		Mode:          mode,
-		GitSvc:        gitSvc,
-		Config:        cfg,
-		Colors:        colors,
-		DefaultBranch: defaultBranch,
-		BaseRef:       baseRef,
-		NotifySvc:     notifySvc,
-		WtCleanup:     wtCleanup,
+		Mode:           mode,
+		GitSvc:         gitSvc,
+		Config:         cfg,
+		Colors:         colors,
+		DefaultBranch:  defaultBranch,
+		BaseRef:        baseRef,
+		NotifySvc:      notifySvc,
+		WtCleanup:      wtCleanup,
+		BranchOverride: o.Branch,
 	}, selector)
 }
 
@@ -337,7 +356,7 @@ func selectAndExecutePlan(ctx context.Context, o opts, req executePlanRequest, s
 		return fmt.Errorf("ensure gitignore: %w", err)
 	}
 	if planFile != "" && modeRequiresBranch(req.Mode) {
-		if err := req.GitSvc.CreateBranchForPlan(planFile, req.DefaultBranch); err != nil {
+		if err := req.GitSvc.CreateBranchForPlan(planFile, req.DefaultBranch, req.BranchOverride); err != nil {
 			return fmt.Errorf("create branch for plan: %w", err)
 		}
 	}
@@ -400,10 +419,11 @@ func setupProgressLogger(o opts, req executePlanRequest, branch string) (progres
 	} else {
 		var err error
 		baseLog, err = progress.NewLogger(progress.Config{
-			PlanFile: req.PlanFile,
-			Mode:     string(req.Mode),
-			Branch:   branch,
-			NoColor:  o.NoColor,
+			PlanFile:       req.PlanFile,
+			Mode:           string(req.Mode),
+			Branch:         branch,
+			BranchOverride: req.BranchOverride,
+			NoColor:        o.NoColor,
 		}, req.Colors, holder)
 		if err != nil {
 			return progressLogResult{}, fmt.Errorf("create progress logger: %w", err)
@@ -448,7 +468,9 @@ func buildNotifyResult(req executePlanRequest, branch, elapsed string, stats git
 
 // displayStats prints completion summary with optional diff statistics and paths.
 // mirrors the startup header format using displayMeta for plan/branch/progress.
-func displayStats(req executePlanRequest, baseLog *progress.Logger, stats git.DiffStats, elapsed, branch string) {
+// reflects where the plan actually lives: completed/ only when the move actually
+// succeeded; original path when the move was skipped or failed.
+func displayStats(req executePlanRequest, baseLog *progress.Logger, stats git.DiffStats, elapsed, branch string, planMoved bool) {
 	if stats.Files > 0 {
 		baseLog.LogDiffStats(stats.Files, stats.Additions, stats.Deletions)
 		req.Colors.Info().Printf("\ncompleted in %s (%d files, +%d/-%d lines)\n",
@@ -463,7 +485,10 @@ func displayStats(req executePlanRequest, baseLog *progress.Logger, stats git.Di
 		if req.MainPlanFile != "" {
 			planFile = req.MainPlanFile
 		}
-		planPath = filepath.Join(filepath.Dir(planFile), "completed", filepath.Base(planFile))
+		planPath = planFile
+		if planMoved {
+			planPath = filepath.Join(filepath.Dir(planFile), "completed", filepath.Base(planFile))
+		}
 	}
 	displayMeta(req.Colors, 2, planPath, branch, baseLog.Path())
 }
@@ -529,11 +554,12 @@ func executePlan(ctx context.Context, o opts, req executePlanRequest) error {
 
 	// print startup info
 	printStartupInfo(startupInfo{
-		PlanFile:      req.PlanFile,
-		Branch:        branch,
-		Mode:          req.Mode,
-		MaxIterations: resolveMaxIterations(o.MaxIterations, req.Config),
-		ProgressPath:  plr.baseLog.Path(),
+		PlanFile:                req.PlanFile,
+		Branch:                  branch,
+		Mode:                    req.Mode,
+		MaxIterations:           resolveMaxIterations(o.MaxIterations, req.Config),
+		ProgressPath:            plr.baseLog.Path(),
+		PreserveAnthropicAPIKey: req.Config.PreserveAnthropicAPIKey,
 	}, req.Colors)
 
 	// create and run the runner
@@ -574,7 +600,9 @@ func executePlan(ctx context.Context, o opts, req executePlanRequest) error {
 
 	// move completed plan to completed/ directory.
 	// use MainGitSvc+MainPlanFile when available (worktree mode) because the plan file is in the main repo.
-	if req.PlanFile != "" && modeRequiresBranch(req.Mode) {
+	// track actual success so the completion summary reflects where the plan really lives.
+	planMoved := false
+	if shouldMovePlan(req) {
 		moveSvc := req.GitSvc
 		movePlanFile := req.PlanFile
 		if req.MainGitSvc != nil {
@@ -585,10 +613,12 @@ func executePlan(ctx context.Context, o opts, req executePlanRequest) error {
 		}
 		if moveErr := moveSvc.MovePlanToCompleted(movePlanFile); moveErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to move plan to completed: %v\n", moveErr)
+		} else {
+			planMoved = true
 		}
 	}
 
-	displayStats(req, plr.baseLog, stats, elapsed, branch)
+	displayStats(req, plr.baseLog, stats, elapsed, branch, planMoved)
 	keepDashboardAlive(ctx, o, req, plr.closeLog)
 
 	return nil
@@ -598,7 +628,7 @@ func executePlan(ctx context.Context, o opts, req executePlanRequest) error {
 // in the main repo), chdirs into the worktree, and runs executePlan. On return the worktree
 // is cleaned up and CWD is restored. req.WtCleanup is populated for interrupt handler use.
 func runWithWorktree(ctx context.Context, o opts, req executePlanRequest) (err error) {
-	wtPath, planNeedsCommit, err := req.GitSvc.CreateWorktreeForPlan(req.PlanFile, req.DefaultBranch)
+	wtPath, planNeedsCommit, err := req.GitSvc.CreateWorktreeForPlan(req.PlanFile, req.DefaultBranch, req.BranchOverride)
 	if err != nil {
 		return fmt.Errorf("create worktree: %w", err)
 	}
@@ -635,12 +665,13 @@ func runWithWorktree(ctx context.Context, o opts, req executePlanRequest) (err e
 	// create progress logger BEFORE chdir so progress files land in main repo's .ralphex/progress/.
 	// use branch name derived from plan file since gitSvc still points at the main repo (on master).
 	holder := &status.PhaseHolder{}
-	branch := plan.ExtractBranchName(req.PlanFile)
+	branch := req.GitSvc.EffectiveBranchName(req.PlanFile, req.BranchOverride)
 	baseLog, err := progress.NewLogger(progress.Config{
-		PlanFile: req.PlanFile,
-		Mode:     string(req.Mode),
-		Branch:   branch,
-		NoColor:  o.NoColor,
+		PlanFile:       req.PlanFile,
+		Mode:           string(req.Mode),
+		Branch:         branch,
+		BranchOverride: req.BranchOverride,
+		NoColor:        o.NoColor,
 	}, req.Colors, holder)
 	if err != nil {
 		return fmt.Errorf("create progress logger: %w", err)
@@ -687,21 +718,7 @@ func runWithWorktree(ctx context.Context, o opts, req executePlanRequest) (err e
 
 	// resolve plan file path inside the worktree so Claude operates on the local copy,
 	// not the original in the main repo. the plan was copied by CreateWorktreeForPlan.
-	wtPlanFile := req.PlanFile
-	if filepath.IsAbs(req.PlanFile) {
-		// resolve symlinks on plan path to match GitSvc.Root() which is also resolved
-		// (macOS: /tmp -> /private/tmp); without this, filepath.Rel produces wrong results
-		resolvedPlan := req.PlanFile
-		if resolved, evalErr := filepath.EvalSymlinks(resolvedPlan); evalErr == nil {
-			resolvedPlan = resolved
-		}
-		if rel, relErr := filepath.Rel(req.GitSvc.Root(), resolvedPlan); relErr == nil {
-			abs, absErr := filepath.Abs(rel) // resolve relative to CWD (now the worktree)
-			if absErr == nil {
-				wtPlanFile = abs
-			}
-		}
-	}
+	wtPlanFile := resolveWorktreePlanFile(req.PlanFile, req.GitSvc.Root())
 
 	// commit plan file on the feature branch (inside worktree), not on the default branch
 	if planNeedsCommit {
@@ -724,6 +741,29 @@ func runWithWorktree(ctx context.Context, o opts, req executePlanRequest) (err e
 		ProgressLog:   baseLog,
 		PhaseHolder:   holder,
 	})
+}
+
+// resolveWorktreePlanFile maps an absolute plan path from the main repo into the worktree CWD.
+// It resolves symlinks on the plan path to match the repo root (macOS: /tmp -> /private/tmp),
+// then makes the path relative to the root and absolute within the worktree.
+// Falls back to the original path if any step fails or the path is not absolute.
+func resolveWorktreePlanFile(planFile, repoRoot string) string {
+	if !filepath.IsAbs(planFile) {
+		return planFile
+	}
+	resolved := planFile
+	if r, err := filepath.EvalSymlinks(resolved); err == nil {
+		resolved = r
+	}
+	rel, err := filepath.Rel(repoRoot, resolved)
+	if err != nil {
+		return planFile
+	}
+	abs, err := filepath.Abs(rel)
+	if err != nil {
+		return planFile
+	}
+	return abs
 }
 
 // openGitService creates a git.Service for the current directory.
@@ -813,6 +853,13 @@ func makePauseHandler(stdin io.Reader, stdout io.Writer) func(ctx context.Contex
 	}
 }
 
+// shouldMovePlan returns true when a completed plan file should be moved to the
+// completed/ directory: plan file is set, mode requires a branch, and the user
+// has not opted out via move_plan_on_completion=false.
+func shouldMovePlan(req executePlanRequest) bool {
+	return req.PlanFile != "" && modeRequiresBranch(req.Mode) && req.Config.MovePlanOnCompletion
+}
+
 // validateFlags checks for conflicting CLI flags.
 func validateFlags(o opts) error {
 	if o.PlanDescription != "" && o.PlanFile != "" {
@@ -873,6 +920,7 @@ func createRunner(req executePlanRequest, o opts, log processor.Logger, holder *
 		IterationDelayMs:      req.Config.IterationDelayMs,
 		TaskRetryCount:        req.Config.TaskRetryCount,
 		CodexEnabled:          codexEnabled,
+		ExternalReviewToolSet: o.externalReviewToolSet,
 		FinalizeEnabled:       req.Config.FinalizeEnabled,
 		DefaultBranch:         req.BaseRef,
 		TaskModel:             taskModel,
@@ -890,7 +938,11 @@ func printStartupInfo(info startupInfo, colors *progress.Colors) {
 		colors.Info().Printf("starting interactive plan creation\n")
 		colors.Info().Printf("request: %s\n", info.PlanDescription)
 		colors.Info().Printf("branch: %s (max %d iterations)\n", info.Branch, info.MaxIterations)
-		colors.Info().Printf("progress log: %s\n\n", toRelPath(info.ProgressPath))
+		colors.Info().Printf("progress log: %s\n", toRelPath(info.ProgressPath))
+		if info.PreserveAnthropicAPIKey {
+			colors.Warn().Printf("auth: ANTHROPIC_API_KEY passthrough enabled\n")
+		}
+		colors.Info().Printf("\n")
 		return
 	}
 
@@ -900,6 +952,9 @@ func printStartupInfo(info startupInfo, colors *progress.Colors) {
 	}
 	colors.Info().Printf("starting ralphex loop (max %d iterations)%s\n", info.MaxIterations, modeStr)
 	displayMeta(colors, 0, info.PlanFile, info.Branch, info.ProgressPath)
+	if info.PreserveAnthropicAPIKey {
+		colors.Warn().Printf("auth: ANTHROPIC_API_KEY passthrough enabled\n")
+	}
 	colors.Info().Printf("\n")
 }
 
@@ -944,11 +999,12 @@ func runPlanMode(ctx context.Context, o opts, req executePlanRequest, selector *
 
 	// print startup info for plan mode
 	printStartupInfo(startupInfo{
-		PlanDescription: o.PlanDescription,
-		Branch:          branch,
-		Mode:            processor.ModePlan,
-		MaxIterations:   maxIter,
-		ProgressPath:    baseLog.Path(),
+		PlanDescription:         o.PlanDescription,
+		Branch:                  branch,
+		Mode:                    processor.ModePlan,
+		MaxIterations:           maxIter,
+		ProgressPath:            baseLog.Path(),
+		PreserveAnthropicAPIKey: req.Config.PreserveAnthropicAPIKey,
 	}, req.Colors)
 
 	// create input collector
@@ -1018,20 +1074,21 @@ func runPlanMode(ctx context.Context, o opts, req executePlanRequest, selector *
 	// worktree mode: create worktree and run from there
 	if req.Config.WorktreeEnabled {
 		return runWithWorktree(ctx, o, executePlanRequest{
-			PlanFile:      planFile,
-			Mode:          processor.ModeFull,
-			GitSvc:        req.GitSvc,
-			Config:        req.Config,
-			Colors:        req.Colors,
-			DefaultBranch: req.DefaultBranch,
-			BaseRef:       req.BaseRef,
-			NotifySvc:     req.NotifySvc,
-			WtCleanup:     req.WtCleanup,
+			PlanFile:       planFile,
+			Mode:           processor.ModeFull,
+			GitSvc:         req.GitSvc,
+			Config:         req.Config,
+			Colors:         req.Colors,
+			DefaultBranch:  req.DefaultBranch,
+			BaseRef:        req.BaseRef,
+			NotifySvc:      req.NotifySvc,
+			WtCleanup:      req.WtCleanup,
+			BranchOverride: req.BranchOverride,
 		})
 	}
 
 	// normal mode: create branch and run in place
-	if err := req.GitSvc.CreateBranchForPlan(planFile, req.DefaultBranch); err != nil {
+	if err := req.GitSvc.CreateBranchForPlan(planFile, req.DefaultBranch, req.BranchOverride); err != nil {
 		return fmt.Errorf("create branch for plan: %w", err)
 	}
 
@@ -1222,6 +1279,9 @@ func applyCLIOverrides(o opts, cfg *config.Config) {
 	if o.SkipFinalize {
 		cfg.FinalizeEnabled = false
 	}
+	if o.PreserveAnthropicAPIKey {
+		cfg.PreserveAnthropicAPIKey = true
+	}
 	if o.Worktree {
 		cfg.WorktreeEnabled = true
 	}
@@ -1236,6 +1296,19 @@ func applyCLIOverrides(o opts, cfg *config.Config) {
 	if o.IdleTimeout > 0 || (o.IdleTimeout == 0 && o.idleTimeoutSet) {
 		cfg.IdleTimeout = o.IdleTimeout
 		cfg.IdleTimeoutSet = true
+	}
+	if o.claudeCommandSet {
+		cfg.ClaudeCommand = o.ClaudeCommand
+	}
+	if o.claudeArgsSet {
+		cfg.ClaudeArgs = o.ClaudeArgs
+		cfg.ClaudeArgsSet = true
+	}
+	if o.externalReviewToolSet {
+		cfg.ExternalReviewTool = o.ExternalReviewTool
+	}
+	if o.customReviewScriptSet {
+		cfg.CustomReviewScript = o.CustomReviewScript
 	}
 }
 

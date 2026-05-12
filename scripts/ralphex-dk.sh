@@ -7,7 +7,10 @@ Usage: ralphex-dk.sh [wrapper-flags] [ralphex-args]
 Wrapper-specific flags (parsed by this script):
   -E, --env VAR[=val]        extra env var to pass to container (repeatable)
   -v, --volume src:dst[:opts] extra volume mount (repeatable)
+  --image IMAGE              Docker image (env: RALPHEX_IMAGE)
+  --port PORT                web dashboard port with --serve (env: RALPHEX_PORT)
   --docker                   mount host Docker socket into container
+  --network MODE             Docker network mode, e.g. 'host'
   --dry-run                  print docker command without executing
   --update                   pull latest Docker image and exit
   --update-script            update this wrapper script and exit
@@ -137,6 +140,10 @@ def build_parser() -> argparse.ArgumentParser:
                         help="mount host Docker socket into container (env: RALPHEX_DOCKER_SOCKET)")
     parser.add_argument("--network", dest="network", metavar="MODE",
                         help="Docker network mode, e.g. 'host' (env: RALPHEX_DOCKER_NETWORK)")
+    parser.add_argument("--image", dest="image", metavar="IMAGE",
+                        help=f"Docker image (default: {DEFAULT_IMAGE}) (env: RALPHEX_IMAGE)")
+    parser.add_argument("--port", dest="port", metavar="PORT",
+                        help=f"web dashboard port with --serve (default: {DEFAULT_PORT}) (env: RALPHEX_PORT)")
     parser.add_argument("--dry-run", action="store_true", dest="dry_run",
                         help="print docker command that would be run, without executing")
     return parser
@@ -391,10 +398,17 @@ def build_volumes(creds_temp: Optional[Path], claude_home: Optional[Path] = None
         add_symlink_targets(codex_dir)
 
     # 7. ~/.config/ralphex -> /home/app/.config/ralphex + symlink targets
+    # always mount, creating the host dir if missing — this ensures docker
+    # creates /home/app/.config in the container (as root), avoiding mkdir
+    # permission errors when SKIP_HOME_CHOWN=1 leaves /home/app unwritable
+    # to the remapped APP_UID
     ralphex_config = home / ".config" / "ralphex"
-    if ralphex_config.is_dir():
-        add(resolve_path(ralphex_config), "/home/app/.config/ralphex")
-        add_symlink_targets(ralphex_config)
+    try:
+        ralphex_config.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError as exc:
+        raise OSError(f"failed to create config directory {ralphex_config}") from exc
+    add(resolve_path(ralphex_config), "/home/app/.config/ralphex")
+    add_symlink_targets(ralphex_config)
 
     # 8. .ralphex/ symlink targets only (workspace mount already includes it)
     local_ralphex = cwd / ".ralphex"
@@ -1001,8 +1015,8 @@ def main() -> int:
         run_tests()
         return 0
 
-    image = os.environ.get("RALPHEX_IMAGE", DEFAULT_IMAGE)
-    port = os.environ.get("RALPHEX_PORT", DEFAULT_PORT)
+    image = parsed.image or os.environ.get("RALPHEX_IMAGE", DEFAULT_IMAGE)
+    port = parsed.port or os.environ.get("RALPHEX_PORT", DEFAULT_PORT)
     network = parsed.network or os.environ.get("RALPHEX_DOCKER_NETWORK", "")
 
     # handle --update
@@ -1047,6 +1061,9 @@ def main() -> int:
             cmd.extend(["-w", "/workspace"])
             cmd.extend([image, "/srv/ralphex", "--help"])
             return subprocess.run(cmd, check=False).returncode
+        except OSError as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 1
         finally:
             if creds_temp:
                 try:
@@ -1208,6 +1225,9 @@ def main() -> int:
         schedule_cleanup(creds_temp)
 
         return run_docker(image, port, volumes, extra_env, bind_port, ralphex_args, docker_gid=docker_gid, network=network)
+    except OSError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     finally:
         # only skip cleanup if dry-run completed successfully (user got the file path warning)
         if not dry_run_completed:

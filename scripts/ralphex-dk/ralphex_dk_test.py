@@ -187,7 +187,32 @@ class TestShouldBindPort(unittest.TestCase):
     def test_empty(self) -> None:
         self.assertFalse(should_bind_port([]))
 
-class TestBuildVolumes(unittest.TestCase):
+class _FakeHomeTestCase(unittest.TestCase):
+    """base test case providing a fake $HOME for tests that exercise build_volumes()
+    or any helper that reads/writes paths under the user's home directory. patches
+    Path.home() and the HOME env var so build_volumes' new mkdir for
+    ~/.config/ralphex lands in a tempdir, keeping the suite hermetic on real CI
+    runners and dev boxes. HOME is patched in addition to Path.home so
+    Path.expanduser('~/...') stays consistent with Path.home(); without it,
+    expanduser still reads the real HOME and the two diverge."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.fake_home = self.tmp / "home"
+        self.fake_home.mkdir()
+        (self.fake_home / ".claude").mkdir()
+        self._home_patcher = unittest.mock.patch("ralphex_dk.Path.home", return_value=self.fake_home)
+        self._home_patcher.start()
+        self._env_patcher = unittest.mock.patch.dict(os.environ, {"HOME": str(self.fake_home)})
+        self._env_patcher.start()
+
+    def tearDown(self) -> None:
+        self._env_patcher.stop()
+        self._home_patcher.stop()
+        shutil.rmtree(self.tmp)
+
+
+class TestBuildVolumes(_FakeHomeTestCase):
     def test_volume_pairs(self) -> None:
         with unittest.mock.patch("ralphex_dk.selinux_enabled", return_value=False):
             vols = build_volumes(None)
@@ -222,10 +247,27 @@ class TestBuildVolumes(unittest.TestCase):
             found = any("/mnt/claude:ro,z" in v for v in vols)
             self.assertTrue(found, "should mount ~/.claude to /mnt/claude:ro,z")
 
-class TestBuildVolumesGitignore(unittest.TestCase):
+    def test_creates_ralphex_config_dir_when_missing(self) -> None:
+        """build_volumes creates ~/.config/ralphex with mode 0o700 when it does not exist."""
+        ralphex_config = self.fake_home / ".config" / "ralphex"
+        self.assertFalse(ralphex_config.exists())
+        with unittest.mock.patch("ralphex_dk.selinux_enabled", return_value=False):
+            build_volumes(None)
+        self.assertTrue(ralphex_config.is_dir(), "~/.config/ralphex should be created")
+        mode = ralphex_config.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o700, f"expected mode 0700, got {oct(mode)}")
+
+    def test_always_mounts_ralphex_config(self) -> None:
+        """build_volumes always includes the ~/.config/ralphex mount even when dir was missing."""
+        with unittest.mock.patch("ralphex_dk.selinux_enabled", return_value=False):
+            vols = build_volumes(None)
+        found = any("/home/app/.config/ralphex" in v for v in vols)
+        self.assertTrue(found, "~/.config/ralphex should always be mounted to /home/app/.config/ralphex")
+
+class TestBuildVolumesGitignore(_FakeHomeTestCase):
     def test_global_gitignore_remapped_to_home_app(self) -> None:
         """global gitignore under $HOME should be mounted at /home/app/<relative>."""
-        home = Path.home()
+        home = self.fake_home
         fake_ignore = home / ".gitignore"
         with (
             unittest.mock.patch("ralphex_dk.get_global_gitignore", return_value=fake_ignore),
@@ -238,7 +280,7 @@ class TestBuildVolumesGitignore(unittest.TestCase):
 
     def test_global_gitignore_also_mounted_at_original_absolute_path(self) -> None:
         """gitignore under $HOME should also be mounted at original absolute path for .gitconfig refs."""
-        home = Path.home()
+        home = self.fake_home
         fake_ignore = home / ".gitignore_global"
         with (
             unittest.mock.patch("ralphex_dk.get_global_gitignore", return_value=fake_ignore),
@@ -385,7 +427,7 @@ class TestScheduleCleanup(unittest.TestCase):
 
         self.assertEqual(captured_delay, [60.0])
 
-class TestBuildDockerCmd(unittest.TestCase):
+class TestBuildDockerCmd(_FakeHomeTestCase):
     def test_creds_volume_mount_without_selinux(self) -> None:
         """build_volumes should include creds temp mount when provided."""
         fd, tmp_path = tempfile.mkstemp()
@@ -441,7 +483,7 @@ class TestKeychainServiceName(unittest.TestCase):
         """tilde path ~/.claude is expanded and recognized as default."""
         self.assertEqual(keychain_service_name(Path("~/.claude")), "Claude Code-credentials")
 
-class TestBuildVolumesClaudeHome(unittest.TestCase):
+class TestBuildVolumesClaudeHome(_FakeHomeTestCase):
     def test_custom_claude_home_mount_without_selinux(self) -> None:
         """build_volumes with custom claude_home mounts that dir to /mnt/claude:ro."""
         tmp = Path(tempfile.mkdtemp()).resolve()
@@ -520,7 +562,7 @@ class TestSelinuxEnabled(unittest.TestCase):
             mock_path.return_value.exists.return_value = True
             self.assertTrue(selinux_enabled())
 
-class TestSelinuxVolumeSuffix(unittest.TestCase):
+class TestSelinuxVolumeSuffix(_FakeHomeTestCase):
     def test_z_label_in_volumes_when_selinux(self) -> None:
         """volume mounts include :z label when SELinux is enabled."""
         with unittest.mock.patch("ralphex_dk.selinux_enabled", return_value=True):
@@ -538,7 +580,7 @@ class TestSelinuxVolumeSuffix(unittest.TestCase):
             self.assertFalse(vols[i].endswith(":z"),
                              f"volume {vols[i]} should not have :z without SELinux")
 
-class TestClaudeConfigDirEnv(unittest.TestCase):
+class TestClaudeConfigDirEnv(_FakeHomeTestCase):
     def test_env_sets_claude_home(self) -> None:
         """CLAUDE_CONFIG_DIR env var selects alternate claude directory."""
         tmp = Path(tempfile.mkdtemp()).resolve()
@@ -569,7 +611,7 @@ class TestClaudeConfigDirEnv(unittest.TestCase):
             with unittest.mock.patch("ralphex_dk.selinux_enabled", return_value=False):
                 vols = build_volumes(None, claude_home=None)
             # the first volume mount should map ~/.claude -> /mnt/claude
-            default_claude = str((Path.home() / ".claude").resolve())
+            default_claude = str((self.fake_home / ".claude").resolve())
             vol_sources = [v.split(":")[0] for v in vols if v.startswith("/")]
             self.assertIn(default_claude, vol_sources,
                           f"default ~/.claude path not found in volume mounts: {vols}")
@@ -930,6 +972,32 @@ class TestBuildParser(unittest.TestCase):
         self.assertFalse(args.update_script)
         self.assertEqual(unknown, ["--up"])
 
+    def test_image_flag(self) -> None:
+        """--image flag is parsed correctly."""
+        parser = build_parser()
+        args, unknown = parser.parse_known_args(["--image", "my/img:tag"])
+        self.assertEqual(args.image, "my/img:tag")
+        self.assertEqual(unknown, [])
+
+    def test_image_flag_default_none(self) -> None:
+        """--image default is None (so env/default fallback can apply)."""
+        parser = build_parser()
+        args, _ = parser.parse_known_args([])
+        self.assertIsNone(args.image)
+
+    def test_port_flag(self) -> None:
+        """--port flag is parsed correctly."""
+        parser = build_parser()
+        args, unknown = parser.parse_known_args(["--port", "9090"])
+        self.assertEqual(args.port, "9090")
+        self.assertEqual(unknown, [])
+
+    def test_port_flag_default_none(self) -> None:
+        """--port default is None (so env/default fallback can apply)."""
+        parser = build_parser()
+        args, _ = parser.parse_known_args([])
+        self.assertIsNone(args.port)
+
 class TestMainArgparse(EnvTestCase):
     """tests for main() argparse integration."""
     env_vars = ["RALPHEX_IMAGE", "RALPHEX_PORT", "RALPHEX_EXTRA_ENV",
@@ -1174,6 +1242,65 @@ class TestMainArgparse(EnvTestCase):
             self.assertIn("=invalid", warning)
         finally:
             shutil.rmtree(tmp)
+
+    def _run_main_capturing_image_port(self, argv: list[str]) -> tuple[str, str]:
+        """run main() with claude dir set up and capture resolved image/port."""
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            claude_dir = tmp / ".claude"
+            claude_dir.mkdir()
+            (claude_dir / ".credentials.json").write_text("{}")
+            os.environ["CLAUDE_CONFIG_DIR"] = str(claude_dir)
+
+            captured: dict[str, str] = {}
+
+            def fake_run_docker(image: str, port: str, volumes: list[str],
+                                env_vars: list[str], bind_port: bool, args: list[str],
+                                docker_gid: int | None = None, **kwargs: object) -> int:
+                captured["image"] = image
+                captured["port"] = port
+                return 0
+
+            with unittest.mock.patch("ralphex_dk.run_docker", side_effect=fake_run_docker):
+                with unittest.mock.patch("ralphex_dk.extract_macos_credentials", return_value=None):
+                    sys.argv = argv
+                    result = main()
+            self.assertEqual(result, 0)
+            return captured["image"], captured["port"]
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_image_port_defaults(self) -> None:
+        """without flag or env, image and port fall back to defaults."""
+        image, port = self._run_main_capturing_image_port(["ralphex-dk", "plan.md"])
+        self.assertEqual(image, DEFAULT_IMAGE)
+        self.assertEqual(port, DEFAULT_PORT)
+
+    def test_image_port_from_env(self) -> None:
+        """env vars provide image and port when CLI flags absent."""
+        os.environ["RALPHEX_IMAGE"] = "env-image:tag"
+        os.environ["RALPHEX_PORT"] = "7070"
+        image, port = self._run_main_capturing_image_port(["ralphex-dk", "plan.md"])
+        self.assertEqual(image, "env-image:tag")
+        self.assertEqual(port, "7070")
+
+    def test_image_port_cli_flags(self) -> None:
+        """CLI flags set image and port."""
+        image, port = self._run_main_capturing_image_port(
+            ["ralphex-dk", "--image", "cli-image:tag", "--port", "9090", "plan.md"],
+        )
+        self.assertEqual(image, "cli-image:tag")
+        self.assertEqual(port, "9090")
+
+    def test_image_port_cli_overrides_env(self) -> None:
+        """CLI flags take precedence over env vars."""
+        os.environ["RALPHEX_IMAGE"] = "env-image:tag"
+        os.environ["RALPHEX_PORT"] = "7070"
+        image, port = self._run_main_capturing_image_port(
+            ["ralphex-dk", "--image", "cli-image:tag", "--port", "9090", "plan.md"],
+        )
+        self.assertEqual(image, "cli-image:tag")
+        self.assertEqual(port, "9090")
 
 class TestHelpFlag(EnvTestCase):
     """tests for --help flag handling."""
