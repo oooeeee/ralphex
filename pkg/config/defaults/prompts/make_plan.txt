@@ -104,7 +104,7 @@ This step executes ONLY after the user accepts your draft (progress file contain
 
 Write the accepted plan to disk:
 
-1. Create a plan file at {{PLANS_DIR}}/YYYY-MM-DD-<slug>.md where <slug> is derived from the description
+1. Create a plan file at {{PLANS_DIR}}/YYYYMMDD-<slug>.md where <slug> is derived from the description
 2. Use this structure:
 
 ---
@@ -153,7 +153,6 @@ Write the accepted plan to disk:
 
 - [ ] update README.md if user-facing changes
 - [ ] update CLAUDE.md if internal patterns changed
-- [ ] move this plan to `docs/plans/completed/`
 ---
 
 ## Step 4.5: Validate Plan Before Draft

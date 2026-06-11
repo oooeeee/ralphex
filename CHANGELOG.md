@@ -1,5 +1,92 @@
 # Changelog
 
+## v1.5.1 - 2026-06-08
+
+### Fixed
+
+- Retry transient HTTP errors (529/502/503/504) without --wait #377 @umputun
+
+## v1.5.0 - 2026-06-03
+
+### New Features
+
+- Add claude_retry_patterns for transient wrapper timeouts #374 @umputun
+
+## v1.4.0 - 2026-05-31
+
+### New Features
+
+- Add Antigravity (agy) CLI wrapper as custom provider #369 @korjavin
+- Add plan model setting #363 @umputun
+
+### Improved
+
+- Refactor processor runner into phase engines #364 @umputun
+- Cut code smells and duplication across packages #373 @umputun
+- Standardize date format on YYYYMMDD- in prompts and skill #371 @umputun
+- Document codex plan creation 07a4cc75
+- Clarify Claude wrapper compatibility a3c9157f
+- Use GitHub warning alert d9e47442
+- Document Claude Agent SDK billing options 3f8b89fa
+- Bump golang.org/x/sys from 0.44.0 to 0.45.0 #360 @dependabot
+
+### Fixed
+
+- Pass model and effort flags #372 @mschedrin
+- Validate model flag values #372 @mschedrin
+
+## v1.3.2 - 2026-05-25
+
+### Improved
+
+- Retry claude 5xx API errors via limit patterns 810840f
+- Dedup CLAUDE.md against llms.txt to clear size threshold b858c05
+- Trim CLAUDE.md verbosity a4853c7
+
+### Fixed
+
+- Detect Claude session-limit message #362 @umputun
+
+## v1.3.1 - 2026-05-22
+
+### New Features
+
+- Per-phase model selection for codex executor #357 @umputun
+
+### Improved
+
+- Reflect codex executor support in README header 15b35c7
+- Reflect codex executor support on landing page 88c3966
+
+## v1.3.0 - 2026-05-21
+
+### New Features
+
+- Add first-class codex executor mode #350 @umputun
+
+### Improved
+
+- Add External-Only Mode section to README #345 @umputun
+- Bump github.com/slack-go/slack from 0.23.0 to 0.23.1 #347 @dependabot
+
+## v1.2.0 - 2026-05-12
+
+### New Features
+
+- Detect org's monthly usage limit in claude output #338 @umputun
+- Add `preserve_anthropic_api_key` option for API-key auth (#333) #335 @rsolmano
+
+### Improved
+
+- Document tool-swap setup and list missing wrappers 6d3c63d
+- Bump golang.org/x/sys from 0.43.0 to 0.44.0 #340 @dependabot
+- Bump golang.org/x/term from 0.42.0 to 0.43.0 #339 @dependabot
+
+### Fixed
+
+- Tolerate plan file rename during execution #342 @umputun
+- Pre-initialize config dir #304 @Semior001
+
 ## v1.1.1 - 2026-05-04
 
 ### Improved

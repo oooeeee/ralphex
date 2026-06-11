@@ -354,6 +354,26 @@ func TestDetectSignal(t *testing.T) {
 		{"review complete " + status.ReviewDone, status.ReviewDone},
 		{status.CodexDone + " analysis done", status.CodexDone},
 		{"plan complete " + status.PlanReady, status.PlanReady},
+		{`I have inspected the codebase and confirmed all tasks are done.
+The plan file shows every checkbox marked, tests pass locally, and the linter is clean.
+
+<<<RALPHEX:ALL_TASKS_DONE>>>`, status.Completed},
+		{`Round 1 review summary follows.
+
+The implementation looks complete. Tests cover the new behavior.
+
+<<<RALPHEX:REVIEW_DONE>>>
+
+Additional thoughts: future work could explore caching.`, status.ReviewDone},
+		{`External review iteration finished.
+<<<RALPHEX:CODEX_REVIEW_DONE>>>
+Note: a minor formatting preference was noted but not flagged.`, status.CodexDone},
+		{`Attempted to run go test ./... but encountered a compilation error.
+
+<<<RALPHEX:TASK_FAILED>>>`, status.Failed},
+		{`Plan file written to docs/plans/20260514-feature.md.
+
+<<<RALPHEX:PLAN_READY>>>`, status.PlanReady},
 		{"no signal here", ""},
 	}
 
@@ -859,6 +879,102 @@ func TestClaudeExecutor_Run_ErrorPattern_WithSignal(t *testing.T) {
 func TestLimitPatternError_Error(t *testing.T) {
 	err := &LimitPatternError{Pattern: "You've hit your limit", HelpCmd: "claude /usage"}
 	assert.Equal(t, `detected limit pattern: "You've hit your limit"`, err.Error())
+}
+
+func TestRetryPatternError_Error(t *testing.T) {
+	err := &RetryPatternError{Pattern: "FYA_TRANSIENT_TIMEOUT"}
+	assert.Equal(t, `detected retry pattern: "FYA_TRANSIENT_TIMEOUT"`, err.Error())
+}
+
+func TestClaudeExecutor_Run_DetectsRetryPatternFromNonJSONLine(t *testing.T) {
+	mock := &mocks.CommandRunnerMock{
+		RunFunc: func(_ context.Context, _ string, _ ...string) (io.Reader, func() error, error) {
+			out := "2026/06/02 13:18:04.138 [ERROR] run turn: turn canceled: " +
+				"context deadline exceeded: FYA_TRANSIENT_TIMEOUT: claude turn did not complete before fya turn timeout\n"
+			return strings.NewReader(out), func() error { return errors.New("exit status 1") }, nil
+		},
+	}
+	e := &ClaudeExecutor{cmdRunner: mock, RetryPatterns: []string{"FYA_TRANSIENT_TIMEOUT"}}
+
+	result := e.Run(context.Background(), "test prompt")
+
+	var retryErr *RetryPatternError
+	require.ErrorAs(t, result.Error, &retryErr)
+	assert.Equal(t, "FYA_TRANSIENT_TIMEOUT", retryErr.Pattern)
+	assert.Contains(t, result.Output, "FYA_TRANSIENT_TIMEOUT")
+}
+
+func TestClaudeExecutor_Run_RetryPatternTakesPriorityOverLimitAndError(t *testing.T) {
+	// when recent text matches retry, limit, and error patterns at once, retry wins (highest priority)
+	jsonStream := `{"type":"content_block_delta","delta":{"type":"text_delta",` +
+		`"text":"FYA_TRANSIENT_TIMEOUT and You've hit your limit and API Error: 500"}}`
+	mock := &mocks.CommandRunnerMock{
+		RunFunc: func(_ context.Context, _ string, _ ...string) (io.Reader, func() error, error) {
+			return strings.NewReader(jsonStream), func() error { return nil }, nil
+		},
+	}
+	e := &ClaudeExecutor{
+		cmdRunner:     mock,
+		RetryPatterns: []string{"FYA_TRANSIENT_TIMEOUT"},
+		LimitPatterns: []string{"You've hit your limit"},
+		ErrorPatterns: []string{"API Error:"},
+	}
+
+	result := e.Run(context.Background(), "test prompt")
+
+	var retryErr *RetryPatternError
+	require.ErrorAs(t, result.Error, &retryErr, "retry pattern must win over limit and error patterns")
+	assert.Equal(t, "FYA_TRANSIENT_TIMEOUT", retryErr.Pattern)
+}
+
+func TestClaudeExecutor_Run_RetryPatternSkippedWhenSignalPresent(t *testing.T) {
+	// a stray retry marker must not discard a completed run: when claude emits a completion
+	// signal, retry detection is skipped so the signal survives instead of forcing a re-run.
+	jsonStream := `{"type":"content_block_delta","delta":{"type":"text_delta",` +
+		`"text":"done FYA_TRANSIENT_TIMEOUT <<<RALPHEX:ALL_TASKS_DONE>>>"}}`
+	mock := &mocks.CommandRunnerMock{
+		RunFunc: func(_ context.Context, _ string, _ ...string) (io.Reader, func() error, error) {
+			return strings.NewReader(jsonStream), func() error { return nil }, nil
+		},
+	}
+	e := &ClaudeExecutor{cmdRunner: mock, RetryPatterns: []string{"FYA_TRANSIENT_TIMEOUT"}}
+
+	result := e.Run(context.Background(), "test prompt")
+
+	require.NoError(t, result.Error, "retry pattern must not fire when a completion signal is present")
+	assert.Equal(t, status.Completed, result.Signal, "completion signal must survive")
+}
+
+func TestClaudeExecutor_Run_IdleTimeoutDetectsRetryPattern(t *testing.T) {
+	// when idle timeout fires after a transient retry marker, the retry pattern should be detected
+	// instead of silently returning an idle timeout, so the phase retries the session.
+	pr, pw := io.Pipe()
+
+	mock := &mocks.CommandRunnerMock{
+		RunFunc: func(ctx context.Context, _ string, _ ...string) (io.Reader, func() error, error) {
+			go func() {
+				defer pw.Close()
+				fmt.Fprintln(pw, `{"type":"content_block_delta","delta":{"type":"text_delta","text":"FYA_TRANSIENT_TIMEOUT"}}`)
+				<-ctx.Done()
+			}()
+			return pr, func() error {
+				<-ctx.Done()
+				return errors.New("signal: killed")
+			}, nil
+		},
+	}
+
+	e := &ClaudeExecutor{
+		cmdRunner:     mock,
+		IdleTimeout:   100 * time.Millisecond,
+		RetryPatterns: []string{"FYA_TRANSIENT_TIMEOUT"},
+	}
+	result := e.Run(context.Background(), "test prompt")
+
+	var retryErr *RetryPatternError
+	require.ErrorAs(t, result.Error, &retryErr, "should return RetryPatternError")
+	assert.Equal(t, "FYA_TRANSIENT_TIMEOUT", retryErr.Pattern)
+	assert.False(t, result.IdleTimedOut, "IdleTimedOut should not be set when pattern matched")
 }
 
 func TestClaudeExecutor_Run_IdleTimeoutFires(t *testing.T) {
