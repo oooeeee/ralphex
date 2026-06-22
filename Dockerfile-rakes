@@ -69,20 +69,21 @@ ENV USE_BUILTIN_RIPGREP=0
 ENV RALPHEX_DOCKER=1
 
 # install claude code and codex globally, verify CLI commands exist
-RUN npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot && \
+RUN npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot opencode-ai@latest && \
     command -v claude >/dev/null || { echo "error: claude CLI not found"; exit 1; } && \
     command -v codex >/dev/null || { echo "error: codex CLI not found"; exit 1; } && \
-    command -v copilot >/dev/null || { echo "error: copilot CLI not found"; exit 1; }
+    command -v copilot >/dev/null || { echo "error: copilot CLI not found"; exit 1; } && \
+    command -v opencode >/dev/null || { echo "error: opencode CLI not found"; exit 1; }
 
 # copy ralphex binary
 COPY --from=build /build/ralphex /srv/ralphex
 RUN chmod +x /srv/ralphex
 
 # copy init and helper scripts (combine into single COPY)
-COPY scripts/internal/init-docker.sh scripts/codex-as-claude/codex-as-claude.sh scripts/copilot-as-claude/copilot-as-claude.sh /srv/
+COPY scripts/internal/init-docker.sh scripts/codex-as-claude/codex-as-claude.sh scripts/copilot-as-claude/copilot-as-claude.sh scripts/opencode/opencode-as-claude.sh /srv/
 # rename init-docker.sh to init.sh to preserve original filename
 RUN mv /srv/init-docker.sh /srv/init.sh && \
-    chmod +x /srv/init.sh /srv/codex-as-claude.sh /srv/copilot-as-claude.sh
+    chmod +x /srv/init.sh /srv/codex-as-claude.sh /srv/copilot-as-claude.sh /srv/opencode-as-claude.sh
 
 # expose web dashboard port
 EXPOSE 8080
