@@ -75,6 +75,9 @@ RUN npm install -g @anthropic-ai/claude-code @openai/codex @github/copilot openc
     command -v copilot >/dev/null || { echo "error: copilot CLI not found"; exit 1; } && \
     command -v opencode >/dev/null || { echo "error: opencode CLI not found"; exit 1; }
 
+RUN ln -s /usr/bin/python3.13 /usr/bin/python && \
+    poetry config virtualenvs.in-project true
+
 # copy ralphex binary
 COPY --from=build /build/ralphex /srv/ralphex
 RUN chmod +x /srv/ralphex
